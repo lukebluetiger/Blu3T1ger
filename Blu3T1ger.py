@@ -1,3 +1,4 @@
+import os
 import discord
 import random
 import praw
@@ -121,9 +122,28 @@ async def nuke(ctx, amount=10, *, word="nuked"):
         time.sleep(.1)  # Sleeps for .1s to not go too fast.
 
 
+@client.command(name='join', help='Tells the bot to join the voice channel')
+async def join(ctx):
+    if not ctx.message.author.voice:
+        await ctx.send("{} is not connected to a voice channel".format(ctx.message.author.name))
+        return
+    else:
+        channel = ctx.message.author.voice.channel
+    await channel.connect()
+
+
+@client.command(name='leave', help='To make the bot leave the voice channel')
+async def leave(ctx):
+    voice_client = ctx.message.guild.voice_client
+    if voice_client.is_connected():
+        await voice_client.disconnect()
+    else:
+        await ctx.send("The bot is not connected to a voice channel.")
+
+
 # START OF MUSIC
 
-ytdl_format_options = {
+ytdl_format_options = {  # format options for our downloader
     'format': 'bestaudio/best',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
@@ -142,11 +162,12 @@ ffmpeg_options = {
     'options': '-vn'
 }
 
+# loads our format options dicitonary
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
 
 class YTDLSource(discord.PCMVolumeTransformer):
-    def __init__(self, source, *, data, volume=0.5):
+    def __init__(self, source, *, data, volume=0.5):  # set our volume
         super().__init__(source, volume)
 
         self.data = data
@@ -160,50 +181,93 @@ class YTDLSource(discord.PCMVolumeTransformer):
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
 
         if 'entries' in data:
-            # take first item from a playlist
             data = data['entries'][0]
 
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
 
 
+ydl_opts = {
+    'format': 'bestaudio/best',
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
+    }],
+}
+
+
+def endSong(guild, path):
+    os.remove(path)
+
+
+@client.command(aliases=['pl'])
+async def play(ctx, url):
+    if not ctx.message.author.voice:
+        await ctx.send('you are not connected to a voice channel')
+        return
+
+    else:
+        channel = ctx.message.author.voice.channel
+
+    voice_client = await channel.connect()
+
+    guild = ctx.message.guild
+
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        file = ydl.extract_info(url, download=True)
+        path = str(file['title']) + "-" + str(file['id'] + ".mp3")
+
+    voice_client.play(discord.FFmpegPCMAudio(
+        path), after=lambda x: endSong(guild, path))
+    voice_client.source = discord.PCMVolumeTransformer(
+        voice_client.source, 1)
+
+    await ctx.send(f'**Music: **{url}')
+
+
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @client.command(aliases=['pl'])
-    async def play(self, ctx, *, searchquery):
-        searchquery = searchquery.split(" ")
-        query = urllib.parse.quote(searchquery)
-        url = "https://www.youtube.com/results?search_query=" + query
-        response = urllib.request.urlopen(url)
-        html = response.read()
-        soup = BeautifulSoup(html, 'html.parser')
-        for vid in soup.findAll(attrs={'class': 'yt-uix-tile-link'}, limit=1):
-            url = 'https://www.youtube.com' + vid['href']
-        async with ctx.typing():
-            player = await YTDLSource.from_url(url, loop=self.bot.loop)
-            ctx.voice_client.play(player, after=lambda e: print(
-                f'Player error: {e}') if e else None)
+    @client.command(name='pause')
+    async def pause(ctx):
+        voice_client = ctx.message.guild.voice_client
+        if voice_client.is_playing():
+            await voice_client.pause()
+        else:
+            await ctx.send("The bot is not playing anything at the moment.")
 
-        await ctx.send(f'Now playing: {player.title}')
+    @client.command(name='stop')
+    async def stop(ctx):
+        voice_client = ctx.message.guild.voice_client
+        if voice_client.is_playing():
+            await voice_client.stop()
+        else:
+            await ctx.send("The bot is not playing anything at the moment.")
 
     @client.command(aliases=['dc'])
     async def disconnect(self, ctx):
         await ctx.voice_client.disconnect()
 
-    @play.before_invoke
-    async def ensure_voice(self, ctx):
-        if ctx.voice_client is None:
-            if ctx.author.voice:
-                await ctx.author.voice.channel.connect()
-            else:
-                await ctx.send("You are not connected to a voice channel.")
-                raise commands.CommandError(
-                    "Author not connected to a voice channel.")
-        elif ctx.voice_client.is_playing():
-            ctx.voice_client.stop()
 
+@client.command()
+async def poker(ctx, *, gameHandler):
 
-# Runs the token given to start up the bot
+    cards = ["♠️1", "♠️2", "♠️3", "♠️4", "♠️5", "♠️6", "♠️7", "♠️8", "♠️9", "♠️10", "♠️11", "♠️12", "♠️13",
+             "♥️1", "♥️2", "♥️3", "♥️4", "♥️5", "♥️6", "♥️7", "♥️8", "♥️9", "♥️10", "♥️11", "♥️12", "♥️13",
+             "♦️1", "♦️2", "♦️3", "♦️4", "♦️5", "♦️6", "♦️7", "♦️8", "♦️9", "♦️10", "♦️11", "♦️12", "♦️13",
+             "♣️1", "♣️2", "♣️3", "♣️4", "♣️5", "♣️6", "♣️7", "♣️8", "♣️9", "♣️10", "♣️11", "♣️12", "♣️13"]  # array of deck of cards
+
+    if gameHandler == "start":
+        gameStart = True
+        round = 1
+        playerCard1 = cards[random.randint(0, len(cards)-1)]
+        playerCard2 = cards[random.randint(0, len(cards)-1)]
+        await ctx.send(f"Your cards are {playerCard1} and {playerCard2}")
+
+    else:
+        await ctx.send("Error")
+
+        # Runs the token given to start up the bot
 client.run(token.read())
