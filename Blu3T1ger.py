@@ -10,9 +10,10 @@ from bs4 import BeautifulSoup
 from discord.ext import commands
 
 client = commands.Bot(command_prefix=',')  # Sets the command prefix
-client_id = open('./reddit/client_id.txt')
-client_secret = open('./reddit/client_secret.txt')
-token = open('./discord/token.txt')
+client_id = open('C:/Users/Luke/Documents/Blu3T1ger/reddit/client_id.txt')
+client_secret = open(
+    'C:/Users/Luke/Documents/Blu3T1ger/reddit/client_secret.txt')
+token = open('C:/Users/Luke/Documents/Blu3T1ger/discord/token.txt')
 
 redit = praw.Reddit(client_id=client_id.read(),
                     client_secret=client_secret.read(),
@@ -187,48 +188,78 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
 
 
-ydl_opts = {
-    'format': 'bestaudio/best',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }],
-}
-
-
-def endSong(guild, path):
-    os.remove(path)
-
-
-@client.command(aliases=['pl'])
-async def play(ctx, url):
-    if not ctx.message.author.voice:
-        await ctx.send('you are not connected to a voice channel')
-        return
-
-    else:
-        channel = ctx.message.author.voice.channel
-
-    voice_client = await channel.connect()
-
-    guild = ctx.message.guild
-
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        file = ydl.extract_info(url, download=True)
-        path = str(file['title']) + "-" + str(file['id'] + ".mp3")
-
-    voice_client.play(discord.FFmpegPCMAudio(
-        path), after=lambda x: endSong(guild, path))
-    voice_client.source = discord.PCMVolumeTransformer(
-        voice_client.source, 1)
-
-    await ctx.send(f'**Music: **{url}')
-
-
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+        self.is_playing = False
+        self.is_paused = False
+
+        self.music_queue = []
+        self.ffmpeg_options = ffmpeg_options
+
+        self.vc = None
+
+    def search_yt(self, searchquery):
+        try:
+            info = ytdl.extract_info('ytsearch:%s' %
+                                     searchquery, download=False)['entries'][0]
+        except Exception:
+            return False
+        return {'source': info['formats'[0]['url']], 'title': info['title']}
+
+    def play_next(self):
+        if len(self.music_queue) > 0:  # if something in queue
+            self.is_playing = True
+
+            m_url = self.music_queue[0][0]['source']
+
+            self.music_queue.pop(0)
+
+            self.vc.play(discord.FFmpegAudio(
+                m_url, **self.ffmpeg_options), after=lambda e: self.play_next)
+        else:
+            self.is_playing = False  # Otherwise we aren't playing anything
+
+    async def play_music(self, ctx):
+        if len(self.music_queue) > 0:
+            self.is_playing = True
+            m_url = self.music_queue[0][0]['source']
+
+            if self.vc == None or not self.vc.is_connected():
+                self.vc == await self.music_queue[0][1].connect()
+
+                if self.vc == None:
+                    await ctx.send("Could not connect to voice channel!")
+                    return
+            else:
+                await self.vc.move_to(self.music_queue[0][1])
+
+            self.music_queue.pop(0)
+
+            self.vc.play(discord.FFmpegAudio(
+                m_url, **self.ffmpeg_options), after=lambda e: self.play_next)
+        else:
+            self.is_playing = False
+
+    @client.command(name='play', aliases=['pl'])
+    async def play(self, ctx, *args):
+        query = "".join(args)  # using arguments from command call
+        voice_channel = ctx.author.voice.channel
+        if voice_channel is None:
+            await ctx.send("You are not in a voice channel!!!!")
+        elif self.is_paused:
+            self.vc.resume()
+        else:
+            song = self.search_yt(query)
+            if type(song) == type(True):
+                await ctx.send("Error playing song, please try again.")
+            else:
+                await ctx.send("Song added to queue")
+                self.music_queue.append([song, voice_channel])
+
+                if self.is_playing == False:
+                    await self.play_music(ctx)
 
     @client.command(name='pause')
     async def pause(ctx):
@@ -254,18 +285,28 @@ class Music(commands.Cog):
 @client.command()
 async def poker(ctx, *, gameHandler):
 
-    cards = ["♠️1", "♠️2", "♠️3", "♠️4", "♠️5", "♠️6", "♠️7", "♠️8", "♠️9", "♠️10", "♠️11", "♠️12", "♠️13",
-             "♥️1", "♥️2", "♥️3", "♥️4", "♥️5", "♥️6", "♥️7", "♥️8", "♥️9", "♥️10", "♥️11", "♥️12", "♥️13",
-             "♦️1", "♦️2", "♦️3", "♦️4", "♦️5", "♦️6", "♦️7", "♦️8", "♦️9", "♦️10", "♦️11", "♦️12", "♦️13",
-             "♣️1", "♣️2", "♣️3", "♣️4", "♣️5", "♣️6", "♣️7", "♣️8", "♣️9", "♣️10", "♣️11", "♣️12", "♣️13"]  # array of deck of cards
-
     if gameHandler == "start":
+        cards = ["♠️1", "♠️2", "♠️3", "♠️4", "♠️5", "♠️6", "♠️7", "♠️8", "♠️9", "♠️10", "♠️11", "♠️12", "♠️13",
+                 "♥️1", "♥️2", "♥️3", "♥️4", "♥️5", "♥️6", "♥️7", "♥️8", "♥️9", "♥️10", "♥️11", "♥️12", "♥️13",
+                 "♦️1", "♦️2", "♦️3", "♦️4", "♦️5", "♦️6", "♦️7", "♦️8", "♦️9", "♦️10", "♦️11", "♦️12", "♦️13",
+                 "♣️1", "♣️2", "♣️3", "♣️4", "♣️5", "♣️6", "♣️7", "♣️8", "♣️9", "♣️10", "♣️11", "♣️12", "♣️13"]  # array of deck of cards
+        deck = {"♠️1": 1, "♠️2": 2, "♠️3": 3, "♠️4": 4, "♠️5": 5, "♠️6": 6, "♠️7": 7, "♠️8": 8, "♠️9": 9, "♠️10": 10, "♠️11": 11, "♠️12": 12, "♠️13": 13,
+                "♥️1": 1, "♥️2": 2, "♥️3": 3, "♥️4": 4, "♥️5": 5, "♥️6": 6, "♥️7": 7, "♥️8": 8, "♥️9": 9, "♥️10": 10, "♥️11": 11, "♥️12": 12, "♥️13": 13,
+                "♦️1": 1, "♦️2": 2, "♦️3": 3, "♦️4": 4, "♦️5": 5, "♦️6": 6, "♦️7": 7, "♦️8": 8, "♦️9": 9, "♦️10": 10, "♦️11": 11, "♦️12": 12, "♦️13": 13,
+                "♣️1": 1, "♣️2": 2, "♣️3": 3, "♣️4": 4, "♣️5": 5, "♣️6": 6, "♣️7": 7, "♣️8": 8, "♣️9": 9, "♣️10": 10, "♣️11": 11, "♣️12": 12, "♣️13": 13}
         gameStart = True
         round = 1
-        playerCard1 = cards[random.randint(0, len(cards)-1)]
+        money = 2500.00
+        # random  card from deck
+        playerCard1 = deck[random.randint(0, len(cards)-1)]
+        # when we take a card from a deck, we a re removing the card
+        deck.remove(playerCard1)
         playerCard2 = cards[random.randint(0, len(cards)-1)]
-        await ctx.send(f"Your cards are {playerCard1} and {playerCard2}")
-
+        cards.remove(playerCard2)
+        await ctx.send(f"Your cards are `{playerCard1}` and `{playerCard2}`")
+        while gameStart == True:
+            if round == 1:
+                break
     else:
         await ctx.send("Error")
 
